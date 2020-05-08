@@ -1,5 +1,5 @@
 /*******************************************************************************
-Copyright(C), 1992-2020, 瑞雪轻飏
+Copyright(C), 2020-2020, 瑞雪轻飏
      FileName: main.cpp
        Author: 瑞雪轻飏
       Version: 0.01
@@ -8,254 +8,10 @@ Creation Date: 20200504
        Others: 
 *******************************************************************************/
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <iostream>
-#include <vector>
-#include <system_error>
-#include <string.h>
-#include <string.h>
-#include <vector>
-#include <assert.h>
-#include <math.h>
-
-#include <pthread.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <nvml.h>
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <time.h>
-#include <sys/time.h>
-#include <signal.h>
-
-#include <cuda.h>
-#include <cuda_runtime.h>
-// #include <cuda_runtime.h>
-// #include <cuda_runtime_api.h>
-
-// #include <cuda/cuda.h>
-// #include <cuda/cuda_runtime_api.h>
-
-#define VECTOR_RESERVE 20000
-
+#include "main.h"
 
 // PerformanceMeasurement.bin -h
 // PerformanceMeasurement.bin
-// PerformanceMeasurement.bin -c config_dir
-
-enum MEASURE_MODEL {
-    INTERACTION,
-    DURATION,
-    APPLICATION
-};
-
-class CONFIG {
-public:
-
-    MEASURE_MODEL MeasureModel;
-
-    bool isGenOutFile, isMeasureEnergy, isMeasureMemUtil, isMeasureMemClk, isMeasureGPUUtil, isMeasureSMClk;
-
-    int DeviceID;
-    std::string OutFilePath;
-
-    float SampleInterval; // (ms) Sampling Interval
-    float PowerThreshold; // (W) Part of power above this threshold is consider as dynamic power consumed by applications
-    float MeasureDuration; // (s) Sampling will keep for the specific measurement duration
-    float PostInterval; // (s) Sampling will keep for the specific time interval after all applications are completed
-
-    std::vector< std::vector< std::string > > AppPathes;
-
-    void init();
-    void init(std::string ConfigDir);
-
-    CONFIG(){
-        init();
-    }
-    CONFIG(std::string ConfigDir) {
-        init(ConfigDir);
-    }
-    //~CONFIG();
-};
-
-void CONFIG::init(){
-
-    MeasureModel = MEASURE_MODEL::INTERACTION;
-
-    isGenOutFile = false;
-    isMeasureEnergy = true;
-    isMeasureMemUtil = true;
-    isMeasureMemClk = true;
-    isMeasureGPUUtil = true;
-    isMeasureSMClk = true;
-
-    DeviceID = 0;
-
-    SampleInterval = 20.0;
-    PowerThreshold = 20.0;
-    MeasureDuration = -1.0;
-    PostInterval = 0.0;
-}
-
-void CONFIG::init(std::string ConfigDir){
-    init();
-    // 下边读取文件, 设定参数, 以后再写
-}
-
-class PERF_DATA{
-public:
-    CUdevice cuDevice;
-    nvmlDevice_t nvmlDevice;
-    int ComputeCapablityMajor;
-    int ComputeCapablityMinor;
-    unsigned int long long SampleCount;
-    double TotalDuration; // (s)
-
-    struct timeval prevTimeStamp, currTimeStamp;
-    std::vector<double> vecTimeStamp; // (s)
-    
-    unsigned int prevPower, currPower; // (mW)
-    nvmlUtilization_t prevUtil, currUtil; // (%)
-    unsigned int prevMemClk, currMemClk, prevSMClk, currSMClk; // (MHz)
-    // float prevMemUtil, currGPUUtil;
-    std::vector<unsigned int> vecPower, vecMemUtil, vecMemClk, vecGPUUtil, vecSMClk; // (mW, %, MHz, %, MHz)
-
-    bool isFisrtSample;
-
-    unsigned int minPower, maxPower; // (mW, mW)
-    float avgPower, Energy; // (mW, mJ)
-
-    unsigned int minMemUtil, maxMemUtil; // (%, %)
-    float avgMemUtil, sumMemUtil; // (%, %)
-
-    unsigned int minMemClk, maxMemClk; // (MHz, MHz)
-    float avgMemClk, sumMemClk; // (MHz, MHz)
-
-    unsigned int minGPUUtil, maxGPUUtil; // (%, %)
-    float avgGPUUtil, sumGPUUtil; // (%, %)
-
-    unsigned int minSMClk, maxSMClk; // (MHz, MHz)
-    float avgSMClk, sumSMClk; // (MHz, MHz)
-
-    int init(){
-        SampleCount = 0;
-        TotalDuration = 0.0;
-        vecTimeStamp.push_back(0.0);
-        minPower = 0xFFFFFFFF; maxPower = 0; avgPower = 0.0; Energy = 0.0;
-        minMemUtil = 0xFFFFFFFF; maxMemUtil = 0; avgMemUtil = 0.0; sumMemUtil = 0.0;
-        minMemClk = 0xFFFFFFFF; maxMemClk = 0; avgMemClk = 0.0; sumMemClk = 0.0;
-        minGPUUtil = 0xFFFFFFFF; maxGPUUtil = 0; avgGPUUtil = 0.0; sumGPUUtil = 0.0;
-        minSMClk = 0xFFFFFFFF; maxSMClk = 0; avgSMClk = 0.0; sumSMClk = 0.0;
-        prevTimeStamp.tv_sec = 0;
-        prevTimeStamp.tv_usec = 0;
-        isFisrtSample = true;
-
-        return 0;
-    }
-
-    int init(CONFIG& Config){
-    
-        init();
-
-        if(Config.isGenOutFile==false) return 0;
-
-        if( Config.MeasureModel==MEASURE_MODEL::APPLICATION
-            || Config.MeasureModel==MEASURE_MODEL::INTERACTION ){
-            vecTimeStamp.reserve(VECTOR_RESERVE);
-            vecPower.reserve(VECTOR_RESERVE);
-            vecMemUtil.reserve(VECTOR_RESERVE);
-            vecMemClk.reserve(VECTOR_RESERVE);
-            vecGPUUtil.reserve(VECTOR_RESERVE);
-            vecSMClk.reserve(VECTOR_RESERVE);
-        }else{
-            unsigned long long vecLength = Config.MeasureDuration * 1000 / Config.SampleInterval + 1;
-            vecTimeStamp.reserve(vecLength);
-            vecPower.reserve(vecLength);
-            vecMemUtil.reserve(vecLength);
-            vecMemClk.reserve(vecLength);
-            vecGPUUtil.reserve(vecLength);
-            vecSMClk.reserve(vecLength);
-        }
-
-        return 0;
-    }
-
-    PERF_DATA(){
-        init();
-    }
-
-    PERF_DATA(CONFIG& Config){
-        init(Config);
-    }
-
-    int output(CONFIG& Config){
-
-        std::cout << std::endl;
-        std::cout << "-------- Performance Measurement Results --------" << std::endl;
-        std::cout << "Actual Measurement Duration: " << TotalDuration << " s" << std::endl;
-        std::cout << "Actual Sampling Count: " << SampleCount << std::endl;
-
-        if(Config.isMeasureEnergy==true){
-            avgPower = Energy / TotalDuration;
-            std::cout << std::endl;
-            std::cout << "-------- Energy&Power (All) --------" << std::endl;
-            std::cout << "Energy: " << Energy/1000 << " J" << std::endl;
-            std::cout << "minPower: " << ((float)minPower)/1000 << " W; avgPower: " << avgPower/1000 << " W; maxPower: " << ((float)maxPower)/1000 << " W" << std::endl;
-        }
-
-        if(Config.isMeasureEnergy==true){
-            avgPower = Energy / TotalDuration;
-            float EnergyAbove = Energy/1000 - Config.PowerThreshold*TotalDuration;
-            std::cout << std::endl;
-            std::cout << "-------- Energy&Power (Above Threshold) --------" << std::endl;
-            std::cout << "Energy: " << EnergyAbove << " J" << std::endl;
-            std::cout << "minPower: " << ((float)minPower)/1000-Config.PowerThreshold << " W; avgPower: " << avgPower/1000-Config.PowerThreshold << " W; maxPower: " << ((float)maxPower)/1000-Config.PowerThreshold << " W" << std::endl;
-        }
-
-        if(Config.isMeasureGPUUtil==true || Config.isMeasureSMClk==true){
-            std::cout << std::endl;
-            std::cout << "-------- GPU SM --------" << std::endl;
-        }
-        if(Config.isMeasureGPUUtil==true){
-            avgGPUUtil = sumGPUUtil / TotalDuration;
-            std::cout << "minGPUUtil: " << minGPUUtil << " %; avgGPUUtil: " << avgGPUUtil << " %; maxGPUUtil: " << maxGPUUtil << "%" << std::endl;
-        }
-        if(Config.isMeasureSMClk==true){
-            avgSMClk= sumSMClk / TotalDuration;
-            std::cout << "minSMClk: " << minSMClk << " MHz; avgSMClk: " << avgSMClk << " MHz; maxSMClk: " << maxSMClk << " MHz" << std::endl;
-        }
-
-        if(Config.isMeasureMemUtil==true || Config.isMeasureMemClk==true){
-            std::cout << std::endl;
-            std::cout << "-------- GPU Memory --------" << std::endl;
-        }
-        if(Config.isMeasureMemUtil==true){
-            avgMemUtil = sumMemUtil / TotalDuration;
-            std::cout << "minMemUtil: " << minMemUtil << " %; avgMemUtil: " << avgMemUtil << " %; maxMemUtil: " << maxMemUtil << " %" << std::endl;
-        }
-        if(Config.isMeasureMemClk==true){
-            avgMemClk= sumMemClk / TotalDuration;
-            std::cout << "minMemClk: " << minMemClk << " MHz; avgMemClk: " << avgMemClk << " MHz; maxMemClk: " << maxMemClk << " MHz" << std::endl;
-        }
-
-        
-        if(Config.isGenOutFile==true){
-            std::cout << "Write data to file..." << std::endl;
-            // 这里以后再写
-        }
-
-        return 0;
-    }
-};
-
-// double times[SAMPLE_MAX_SIZE_DEFAULT];
-// // lld elapsedTimes[SAMPLE_MAX_SIZE_DEFAULT];
-// unsigned int powers[SAMPLE_MAX_SIZE_DEFAULT];
-// nvmlPstates_t pStates[SAMPLE_MAX_SIZE_DEFAULT];
-// unsigned int gpuUtil[SAMPLE_MAX_SIZE_DEFAULT];
-// unsigned int memoryUtil[SAMPLE_MAX_SIZE_DEFAULT];
 
 CONFIG Config;
 PERF_DATA PerfData;
@@ -263,161 +19,7 @@ PERF_DATA PerfData;
 int ParseOptions(int argc, char** argv);
 int MeasureInit();
 void AlarmSampler(int signum);
-
-int ParseOptions(int argc, char** argv){
-    
-    int err = 0;
-    int index;
-    extern int optind,opterr,optopt;
-    extern char *optarg;
-    const char usage[] = "Usage: %s [-e] \nType '??? -h' for help.\n";
-
-    Config.init();
-
-    //定义长选项
-    static struct option long_options[] = 
-    {
-        {"h", no_argument, NULL, 'h'},
-        {"help", no_argument, NULL, 'h'},
-
-        {"m", required_argument, NULL, 'm'},
-        {"model", required_argument, NULL, 'm'},
-
-        {"d", required_argument, NULL, 'd'},
-        {"duration", required_argument, NULL, 'd'},
-        {"a", required_argument, NULL, 'a'},
-        {"app", required_argument, NULL, 'a'},
-        {"l", required_argument, NULL, 'l'},
-        {"applistfile", required_argument, NULL, 'l'},
-        {"p", required_argument, NULL, 'p'},
-        {"postinterval", required_argument, NULL, 'p'},
-        
-        {"o", required_argument, NULL, 'o'},
-        {"outfile", required_argument, NULL, 'o'},
-
-        {"i", required_argument, NULL, 'i'},
-        {"id", required_argument, NULL, 'i'},
-        {"s", required_argument, NULL, 's'},
-        {"samplinginterval", required_argument, NULL, 's'},
-        {"t", required_argument, NULL, 't'},
-        {"threshold", required_argument, NULL, 't'},
-
-        {"e", required_argument, NULL, 'e'},
-        {"energy", required_argument, NULL, 'e'},
-        {"memuti", required_argument, NULL, 1},
-        {"memclk", required_argument, NULL, 2},
-        {"gpuuti", required_argument, NULL, 3},
-        {"smclk", required_argument, NULL, 4}
-    };
-
-    int c = 0; //用于接收选项
-    /*循环处理参数*/
-    while(EOF != (c = getopt_long_only(argc, argv, "", long_options, &index)))
-    {
-        //打印处理的参数
-        //printf("start to process %d para\n",optind);
-        switch(c)
-        {
-            case 'h':
-                printf ("这里应该打印帮助信息...\n");
-                //printf ( HELP_INFO );
-                break;
-            case 'm':
-                if(0 == strcmp("ITR", optarg)){
-                    Config.MeasureModel=MEASURE_MODEL::INTERACTION;
-                }else if(0 == strcmp("DUR", optarg)){
-                    Config.MeasureModel=MEASURE_MODEL::DURATION;
-                    std::cerr << "DUR 模式还没实现!" << std::endl;
-                    err |= 1;
-                }if(0 == strcmp("APP", optarg)){
-                    Config.MeasureModel=MEASURE_MODEL::APPLICATION;
-                    std::cerr << "APP 模式还没实现!" << std::endl;
-                    err |= 1;
-                }else{
-                    fprintf ( stderr, "%s: error: -m/-model value illegal.\n", optarg );
-                    err |= 1;
-                }                
-                break;
-            case 'd':
-                Config.MeasureDuration = atof(optarg);
-                break;
-            case 'a':
-                // if(0 == strlen())
-                // std::string ConfigDir = optarg;
-                // err |= Config.init(ConfigDir);
-                std::cerr << "该功能还没实现!" << std::endl;
-                err |= 1;
-                break;
-            case 'l':
-                // std::string ConfigDir = optarg;
-                // err |= Config.init(ConfigDir);
-                std::cerr << "该功能还没实现!" << std::endl;
-                err |= 1;
-                break;
-            case 'p':
-                Config.PostInterval = atof(optarg);
-                break;
-            case 'o':
-                Config.isGenOutFile = true;
-                Config.OutFilePath = optarg;
-                break;
-            case 'i':
-                Config.DeviceID = atoi(optarg);
-                break;
-            case 's':
-                Config.SampleInterval = atof(optarg);
-                break;
-            case 't':
-                Config.PowerThreshold = atof(optarg);
-                break;
-            case 'e':
-                if(0 == atoi(optarg)){
-                    Config.isMeasureEnergy = false;
-                }else{
-                    Config.isMeasureEnergy = true;
-                }
-                break;
-            case 1:
-                if(0 == atoi(optarg)){
-                    Config.isMeasureMemUtil = false;
-                }else{
-                    Config.isMeasureMemUtil = true;
-                }
-                break;
-            case 2:
-                if(0 == atoi(optarg)){
-                    Config.isMeasureMemClk = false;
-                }else{
-                    Config.isMeasureMemClk = true;
-                }
-                break;
-            case 3:
-                if(0 == atoi(optarg)){
-                    Config.isMeasureGPUUtil = false;
-                }else{
-                    Config.isMeasureGPUUtil = true;
-                }
-                break;
-            case 4:
-                if(0 == atoi(optarg)){
-                    Config.isMeasureSMClk = false;
-                }else{
-                    Config.isMeasureSMClk = true;
-                }
-                break;
-            
-            //表示选项不支持
-            case '?':
-                printf("unknow option:%c\n",optopt);
-                err |= 1;
-                break;
-            default:
-                break;
-        }  
-    }
-
-    return 0;
-}
+static void* ForkChildProcess(void* arg);
 
 // 主函数
 int main(int argc, char** argv){
@@ -461,10 +63,86 @@ int main(int argc, char** argv){
 
         // output result
         PerfData.output(Config);
-    }else if(Config.MeasureModel==MEASURE_MODEL::DURATION){
-        std::cerr << "DURATION 模式还没实现!" << std::endl;
     }else if(Config.MeasureModel==MEASURE_MODEL::APPLICATION){
-        std::cerr << "APPLICATION 模式还没实现!" << std::endl;
+
+        std::vector<pthread_t> vecAppTid;
+        std::vector<unsigned int> vecAppIndex;
+        vecAppTid.reserve(Config.vecAppPath.size());
+        vecAppIndex.reserve(Config.vecAppPath.size());
+        // int count = 0;
+        pthread_attr_t attr;
+
+        // 初始化条件变量 初值为 0
+        pthread_mutex_init(&mutexTStart, NULL);
+        pthread_cond_init(&condTStart, NULL);
+        // pthread_mutex_lock(&mutexTStart);
+
+        ChlidFinishCount = 0;
+        ChlidWaitCount = 0;
+        pthread_mutex_init(&mutexTEnd, NULL);
+        pthread_cond_init(&condTEnd, NULL);
+
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+
+        // fork 所需的所有子线程, 并检查是否出错, 并记录子线程 tid
+        for(unsigned int i = 0; i<Config.vecAppPath.size(); i++){
+            vecAppIndex[i] = i;
+            err = pthread_create(&vecAppTid[i], &attr, ForkChildProcess, (void*)&vecAppIndex[i]);
+            if(err != 0) {
+                std::cerr << "ERROR: pthread_create() return code: " << err << std::endl;
+                return -1;
+            }
+        }
+
+        while(ChlidWaitCount != Config.vecAppPath.size()){
+            usleep(10000);
+        }
+
+        // 启动采样
+        signal(SIGALRM, AlarmSampler);
+        ualarm(10, Config.SampleInterval*1000);
+
+        std::cout << "Sampling has already started." << std::endl;
+        std::cout << "Sampling..." << std::endl;
+
+        // 启动子线程, 创建应用进程
+        pthread_cond_broadcast(&condTStart);
+        pthread_mutex_unlock(&mutexTStart);
+
+        while(true){
+            pthread_mutex_lock(&mutexTEnd);
+
+            pthread_cond_wait(&condTEnd, &mutexTEnd); // 这里会先解锁 mutexTEnd, 然后阻塞, 返回后再上锁 mutexTEnd
+
+            // 如果所有子线程都完成了, 即所有应用都执行完了
+            if(ChlidFinishCount == Config.vecAppPath.size()){
+                pthread_mutex_unlock(&mutexTEnd); // 为了上锁/解锁配对, 加上这句
+                break;
+            }
+
+            pthread_mutex_unlock(&mutexTEnd);
+        }
+
+        // 结束采样
+        ualarm(0, Config.SampleInterval*1000);
+        std::cout << "Sampling has already stopped." << std::endl;
+        
+        for (unsigned int i = 0; i<Config.vecAppPath.size(); i++) {
+            pthread_join(vecAppTid[i], NULL);
+        } 
+        
+        // 清理 并 退出
+        pthread_attr_destroy(&attr);
+        pthread_mutex_destroy(&mutexTStart);
+        pthread_mutex_destroy(&mutexTEnd);
+        pthread_cond_destroy(&condTStart);
+        pthread_cond_destroy(&condTEnd);
+        // pthread_exit(NULL);
+
+        // output result
+        PerfData.output(Config);
+        
     }else{
         std::cerr << "Illegal measurement mode !" << std::endl;
     }
@@ -473,17 +151,49 @@ int main(int argc, char** argv){
     return 0;
 }
 
+static void* ForkChildProcess(void* arg){
+
+    pid_t AppPid;
+    int PStatus;
+
+    unsigned int* pAppIndex = (unsigned int*)arg;
+
+    pthread_mutex_lock(&mutexTStart);
+    ChlidWaitCount++;
+    pthread_cond_wait(&condTStart, &mutexTStart);
+    pthread_mutex_unlock(&mutexTStart);
+
+    AppPid = fork();
+    if(AppPid == 0){ // 子进程
+
+        std::cout << "Application " << *pAppIndex + 1 << " is being launched..." << std::endl;
+        execv (Config.vecAppPath[*pAppIndex], Config.vecAppAgrv[*pAppIndex]);
+        printf("ERROR: execv on application %s failed\n", Config.vecAppPath[0]);
+        exit(-1);
+
+    }else if(AppPid < 0){ // 主进程 fork 出错
+        std::cerr << "ERROR: fork on application " << *pAppIndex + 1 << " failed" << std::endl;
+        exit(-1);
+    }
+
+    // 主进程
+    waitpid(AppPid,&PStatus,0); // 等待应用所在进程运行结束
+    
+    pthread_mutex_lock(&mutexTEnd);
+    ChlidFinishCount++; // 应用完成计数 ++
+    pthread_cond_signal(&condTEnd); // 通知主线程, 一个应用已经执行完成
+    pthread_mutex_unlock(&mutexTEnd);
+
+    std::cout << "Application " << *pAppIndex + 1 << " has finished" << std::endl;
+
+    pthread_exit(NULL);
+}
+
 void AlarmSampler(int signum){
 
     if(signum != SIGALRM) return;
 
     nvmlReturn_t nvmlResult;
-    // int i;
-    // struct timeval time;
-    // double now;
-    // static double before = 0;
-
-    double ActualInterval; // (s)
 
     gettimeofday(&PerfData.currTimeStamp,NULL);
 
@@ -589,17 +299,23 @@ void AlarmSampler(int signum){
         PerfData.isFisrtSample = false;
 
         if(Config.isGenOutFile==true){
+            PerfData.StartTimeStamp = (double)PerfData.currTimeStamp.tv_sec + (double)PerfData.currTimeStamp.tv_usec * 1e-6;
+            PerfData.vecTimeStamp.clear();
             PerfData.vecTimeStamp.push_back(0.0);
         }
 
     }else{
+        double ActualInterval; // (s)
+        double RelativeTimeStamp; // (s)
 
         ActualInterval = (double)(PerfData.currTimeStamp.tv_sec - PerfData.prevTimeStamp.tv_sec) + (double)(PerfData.currTimeStamp.tv_usec - PerfData.prevTimeStamp.tv_usec) * 1e-6;
 
-        PerfData.TotalDuration += ActualInterval;
+        RelativeTimeStamp = (double)PerfData.currTimeStamp.tv_sec + (double)PerfData.currTimeStamp.tv_usec * 1e-6 - PerfData.StartTimeStamp;
+
+        // PerfData.TotalDuration += ActualInterval;
 
         if(Config.isGenOutFile==true){
-            PerfData.vecTimeStamp.push_back(ActualInterval);
+            PerfData.vecTimeStamp.push_back(RelativeTimeStamp);
         }
         if(Config.isMeasureEnergy==true){
             PerfData.Energy += (float)(PerfData.prevPower + PerfData.currPower) / 2 * ActualInterval;
@@ -724,4 +440,245 @@ int MeasureInit(){
 	// }
 
 	return 0;
+}
+
+int ParseOptions(int argc, char** argv){
+    
+    int err = 0;
+    unsigned int indexArg = 1; // 当前 flag(即-xxxx) 在 argv 中的 index
+    extern int optind,opterr,optopt;
+    extern char *optarg;
+    const char usage[] = "Usage: %s [-e] \nType '??? -h' for help.\n";
+
+    Config.init();
+
+    //定义长选项
+    static struct option long_options[] = 
+    {
+        {"h", no_argument, NULL, 'h'},
+        {"help", no_argument, NULL, 'h'},
+
+        // {"m", required_argument, NULL, 'm'},
+        // {"model", required_argument, NULL, 'm'},
+
+        // {"d", required_argument, NULL, 'd'},
+        // {"duration", required_argument, NULL, 'd'},
+        {"a", required_argument, NULL, 'a'},
+        {"app", required_argument, NULL, 'a'},
+        {"l", required_argument, NULL, 'l'},
+        {"applistfile", required_argument, NULL, 'l'},
+        {"p", required_argument, NULL, 'p'},
+        {"postinterval", required_argument, NULL, 'p'},
+        
+        {"o", required_argument, NULL, 'o'},
+        {"outfile", required_argument, NULL, 'o'},
+
+        {"i", required_argument, NULL, 'i'},
+        {"id", required_argument, NULL, 'i'},
+        {"s", required_argument, NULL, 's'},
+        {"samplinginterval", required_argument, NULL, 's'},
+        {"t", required_argument, NULL, 't'},
+        {"threshold", required_argument, NULL, 't'},
+
+        {"e", no_argument, NULL, 'e'},
+        {"energy", no_argument, NULL, 'e'},
+        {"memuti", no_argument, NULL, 1},
+        {"memclk", no_argument, NULL, 2},
+        {"gpuuti", no_argument, NULL, 3},
+        {"smclk", no_argument, NULL, 4}
+    };
+
+    int mSet=0, aSet=0, lSet=0, pSet=0, oSet=0, iSet=0, sSet=0, tSet=0, eSet=0, memutiSet=0, memclkSet=0, gpuutiSet=0, smclkSet=0;
+
+    int c = 0; //用于接收选项
+    /*循环处理参数*/
+    while(EOF != (c = getopt_long_only(argc, argv, "", long_options, NULL))){
+        //打印处理的参数
+        //printf("start to process %d para\n",optind);
+        switch(c){
+            case 'h':
+                printf ("这里应该打印帮助信息...\n");
+                //printf ( HELP_INFO );
+                indexArg++;
+                break;
+            // case 'm':
+            //     if(mSet!=0){
+            //         std::cerr << "WARNING: -m/-model is set multiple times, the first value is used" << std::endl;
+            //         break;
+            //     }
+            //     mSet++;
+            //     if(0 == strcmp("ITR", optarg)){
+            //         Config.MeasureModel=MEASURE_MODEL::INTERACTION;
+            //     // }else if(0 == strcmp("DUR", optarg)){
+            //     //     Config.MeasureModel=MEASURE_MODEL::DURATION;
+            //     //     std::cerr << "DUR 模式还没实现!" << std::endl;
+            //     //     err |= 1;
+            //     }else if(0 == strcmp("APP", optarg)){
+            //         Config.MeasureModel=MEASURE_MODEL::APPLICATION;
+            //     }else{
+            //         std::cerr << "ERROR: -m/-model value illegal: " << optarg << std::endl;
+            //         err |= 1;
+            //     }
+            //     indexArg+=2;
+            //     break;
+            // case 'd':
+            //     Config.MeasureDuration = atof(optarg);
+            //     indexArg+=2;
+            //     break;
+            case 'a':
+            {
+                if(aSet!=0 || lSet!=0){
+                    std::cerr << "WARNING: -a/-app/-l/-applistfile is set multiple times, the first value is used" << std::endl;
+                    break;
+                }
+                aSet++;
+                if(argc-indexArg-1 <= 0){ // 缺少应用参数
+                    std::cerr << "ERROR: flag -a/-app need application path" << std::endl;
+                    err |= 1;
+                    return err;
+                }
+
+                Config.MeasureModel=MEASURE_MODEL::APPLICATION;
+
+                Config.vecAppPath.emplace(Config.vecAppPath.begin(), (char*)NULL);
+                Config.vecAppPath[0] = (char*)malloc( sizeof(char) * (strlen(optarg)+1) );
+                strcpy(Config.vecAppPath[0], optarg);
+                
+                Config.vecAppAgrv.emplace(Config.vecAppAgrv.begin(), (char**)NULL);
+                Config.vecAppAgrv[0] = (char**)malloc( sizeof(char*) * (argc-indexArg) );
+                Config.vecAppAgrv[0][argc-indexArg-1] = NULL;
+
+                // 这里要处理 Config.vecAppAgrv[0][0], 复制可执行文件/命令, 而不要前边的路径
+                std::string TmpString = optarg;
+                size_t found = TmpString.find_last_of('/');
+                TmpString = TmpString.substr(found+1);
+                Config.vecAppAgrv[0][0] = (char*)malloc( sizeof(char) * (TmpString.length()+1) );
+                strcpy(Config.vecAppAgrv[0][0], TmpString.c_str());
+                
+                for (size_t i = indexArg+2; i < argc; i++) {
+                    Config.vecAppAgrv[0][i-indexArg-1] = (char*)malloc( sizeof(char) * (strlen(argv[i])+1) );
+                    strcpy(Config.vecAppAgrv[0][i-indexArg-1], argv[i]);
+                }
+            }
+                break;
+            
+            case 'l':
+                if(aSet!=0 || lSet!=0){
+                    std::cerr << "WARNING: -a/-app/-l/-applistfile is set multiple times, the first value is used" << std::endl;
+                    break;
+                }
+                lSet++;
+                if(argc-indexArg-1 <= 0){ // 缺少应用参数
+                    std::cerr << "ERROR: flag \"-a\" need application path" << std::endl;
+                    err |= 1;
+                    return err;
+                }
+                Config.MeasureModel=MEASURE_MODEL::APPLICATION;
+                err = Config.LoadAppList(optarg);
+                indexArg+=2;
+                break;
+            case 'p':
+                if(pSet!=0){
+                    std::cerr << "WARNING: -p/-postinterval is set multiple times, the first value is used" << std::endl;
+                    break;
+                }
+                pSet++;
+                Config.PostInterval = atof(optarg);
+                indexArg+=2;
+                break;
+            case 'o':
+                if(oSet!=0){
+                    std::cerr << "WARNING: -o/-outfile is set multiple times, the first value is used" << std::endl;
+                    break;
+                }
+                oSet++;
+                Config.isGenOutFile = true;
+                Config.OutFilePath = optarg;
+                indexArg+=2;
+                break;
+            case 'i':
+                if(iSet!=0){
+                    std::cerr << "WARNING: -i/-id is set multiple times, the first value is used" << std::endl;
+                    break;
+                }
+                iSet++;
+                Config.DeviceID = atoi(optarg);
+                indexArg+=2;
+                break;
+            case 's':
+                if(sSet!=0){
+                    std::cerr << "WARNING: -s/-samplinginterval is set multiple times, the first value is used" << std::endl;
+                    break;
+                }
+                sSet++;
+                Config.SampleInterval = atof(optarg);
+                indexArg+=2;
+                break;
+            case 't':
+                if(tSet!=0){
+                    std::cerr << "WARNING: -t/-threshold is set multiple times, the first value is used" << std::endl;
+                    break;
+                }
+                tSet++;
+                Config.PowerThreshold = atof(optarg);
+                indexArg+=2;
+                break;
+            case 'e':
+                if(eSet!=0){
+                    std::cerr << "WARNING: -e/-energy is set multiple times" << std::endl;
+                    break;
+                }
+                eSet++;
+                Config.isMeasureEnergy = true;
+                indexArg++;
+                break;
+            case 1:
+                if(memutiSet!=0){
+                    std::cerr << "WARNING: -memuti is set multiple times" << std::endl;
+                    break;
+                }
+                memutiSet++;
+                Config.isMeasureMemUtil = true;
+                indexArg++;
+                break;
+            case 2:
+                if(memclkSet!=0){
+                    std::cerr << "WARNING: -memclk is set multiple times" << std::endl;
+                    break;
+                }
+                memclkSet++;
+                Config.isMeasureMemClk = true;
+                indexArg++;
+                break;
+            case 3:
+                if(gpuutiSet!=0){
+                    std::cerr << "WARNING: -gpuuti is set multiple times" << std::endl;
+                    break;
+                }
+                gpuutiSet++;
+                Config.isMeasureGPUUtil = true;
+                indexArg++;
+                break;
+            case 4:
+                if(smclkSet!=0){
+                    std::cerr << "WARNING: -smclk is set multiple times" << std::endl;
+                    break;
+                }
+                smclkSet++;
+                Config.isMeasureSMClk = true;
+                indexArg++;
+                break;
+            
+            //表示选项不支持
+            case '?':
+                printf("unknow option:%c\n", optopt);
+                err |= 1;
+                indexArg++;
+                break;
+            default:
+                break;
+        }  
+    }
+
+    return err;
 }
