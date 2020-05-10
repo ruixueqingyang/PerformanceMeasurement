@@ -298,8 +298,9 @@ void AlarmSampler(int signum){
     if(PerfData.isFisrtSample==true){
         PerfData.isFisrtSample = false;
 
+        PerfData.StartTimeStamp = (double)PerfData.currTimeStamp.tv_sec + (double)PerfData.currTimeStamp.tv_usec * 1e-6;
+
         if(Config.isGenOutFile==true){
-            PerfData.StartTimeStamp = (double)PerfData.currTimeStamp.tv_sec + (double)PerfData.currTimeStamp.tv_usec * 1e-6;
             PerfData.vecTimeStamp.clear();
             PerfData.vecTimeStamp.push_back(0.0);
         }
@@ -312,7 +313,7 @@ void AlarmSampler(int signum){
 
         RelativeTimeStamp = (double)PerfData.currTimeStamp.tv_sec + (double)PerfData.currTimeStamp.tv_usec * 1e-6 - PerfData.StartTimeStamp;
 
-        // PerfData.TotalDuration += ActualInterval;
+        PerfData.TotalDuration = RelativeTimeStamp;
 
         if(Config.isGenOutFile==true){
             PerfData.vecTimeStamp.push_back(RelativeTimeStamp);

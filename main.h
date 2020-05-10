@@ -120,7 +120,7 @@ int CONFIG::LoadAppList(char* AppListPath){
     }
 
     std::string TmpStr;
-    char* delim = " \r"; // 一行中 使用 空格 分词
+    const char* delim = " \r"; // 一行中 使用 空格 分词
 
     std::getline(srcStream, TmpStr);
     while(!TmpStr.empty()){ // 读取一行
@@ -194,7 +194,7 @@ public:
     int ComputeCapablityMajor;
     int ComputeCapablityMinor;
     unsigned int long long SampleCount;
-    // double TotalDuration; // (s)
+    double TotalDuration; // (s)
 
     struct timeval prevTimeStamp, currTimeStamp;
     std::vector<double> vecTimeStamp; // (s)
@@ -225,7 +225,7 @@ public:
 
     int init(){
         SampleCount = 0;
-        // TotalDuration = 0.0;
+        TotalDuration = 0.0;
         StartTimeStamp = 0.0;
         minPower = 0xFFFFFFFF; maxPower = 0; avgPower = 0.0; Energy = 0.0;
         minMemUtil = 0xFFFFFFFF; maxMemUtil = 0; avgMemUtil = 0.0; sumMemUtil = 0.0;
@@ -276,7 +276,6 @@ public:
     int output(CONFIG& Config){
 
         bool isOpen;
-        double TotalDuration = vecTimeStamp.back();
 
         if(Config.isGenOutFile==true){
             if(outStream.is_open()){
