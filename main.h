@@ -1,6 +1,6 @@
 /*******************************************************************************
 Copyright(C), 2020-2020, 瑞雪轻飏
-     FileName: global.h
+     FileName: main.h
        Author: 瑞雪轻飏
       Version: 0.01
 Creation Date: 20200506
@@ -9,8 +9,8 @@ Creation Date: 20200506
        Others: //其他内容说明
 *******************************************************************************/
 
-#ifndef __GLOBAL_H
-#define __GLOBAL_H
+#ifndef __MAIN_H
+#define __MAIN_H
 
 #include <stdio.h>
 #include <stdlib.h>
