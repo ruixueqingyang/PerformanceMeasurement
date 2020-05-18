@@ -38,6 +38,7 @@ Creation Date: 20200506
 
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include "PowerManager.h"
 
 pthread_cond_t condTStart; // control children processes to start simultaneously
 pthread_mutex_t mutexTStart; // mutex for condTStart

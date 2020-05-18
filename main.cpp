@@ -15,6 +15,7 @@ Creation Date: 20200504
 
 CONFIG Config;
 PERF_DATA PerfData;
+POWER_MANAGER PM;
 
 int ParseOptions(int argc, char** argv);
 int MeasureInit();
@@ -37,6 +38,8 @@ int main(int argc, char** argv){
 
     err = MeasureInit();
     if( 0 != err ) exit(err);
+
+    PM.Set();
 
     if(Config.MeasureModel==MEASURE_MODEL::INTERACTION){
         signal(SIGALRM, AlarmSampler);
@@ -147,6 +150,7 @@ int main(int argc, char** argv){
         std::cerr << "Illegal measurement mode !" << std::endl;
     }
     
+    PM.Reset();
     
     return 0;
 }
@@ -180,11 +184,10 @@ static void* ForkChildProcess(void* arg){
     waitpid(AppPid,&PStatus,0); // 等待应用所在进程运行结束
     
     pthread_mutex_lock(&mutexTEnd);
+    std::cout << "Application " << *pAppIndex + 1 << " has finished" << std::endl;
     ChlidFinishCount++; // 应用完成计数 ++
     pthread_cond_signal(&condTEnd); // 通知主线程, 一个应用已经执行完成
     pthread_mutex_unlock(&mutexTEnd);
-
-    std::cout << "Application " << *pAppIndex + 1 << " has finished" << std::endl;
 
     pthread_exit(NULL);
 }
@@ -452,6 +455,7 @@ int ParseOptions(int argc, char** argv){
     const char usage[] = "Usage: %s [-e] \nType '??? -h' for help.\n";
 
     Config.init();
+    PM.init();
 
     //定义长选项
     static struct option long_options[] = 
@@ -486,14 +490,20 @@ int ParseOptions(int argc, char** argv){
         {"memuti", no_argument, NULL, 1},
         {"memclk", no_argument, NULL, 2},
         {"gpuuti", no_argument, NULL, 3},
-        {"smclk", no_argument, NULL, 4}
+        {"smclk", no_argument, NULL, 4},
+
+        {"tune", required_argument, NULL, 0},
+        {"tunearg", required_argument, NULL, 5}
     };
 
-    int mSet=0, aSet=0, lSet=0, pSet=0, oSet=0, iSet=0, sSet=0, tSet=0, eSet=0, memutiSet=0, memclkSet=0, gpuutiSet=0, smclkSet=0;
+    int aSet=0, lSet=0, pSet=0, oSet=0, iSet=0, sSet=0, tSet=0, eSet=0, memutiSet=0, memclkSet=0, gpuutiSet=0, smclkSet=0, tuneSet=0, tuneargSet=0;
 
     int c = 0; //用于接收选项
     /*循环处理参数*/
     while(EOF != (c = getopt_long_only(argc, argv, "", long_options, NULL))){
+        if(aSet!=0){ // -a 参数必须放在最后, 之后的参数都看作是应用的参数
+            break;
+        }
         //打印处理的参数
         //printf("start to process %d para\n",optind);
         switch(c){
@@ -502,30 +512,6 @@ int ParseOptions(int argc, char** argv){
                 //printf ( HELP_INFO );
                 indexArg++;
                 break;
-            // case 'm':
-            //     if(mSet!=0){
-            //         std::cerr << "WARNING: -m/-model is set multiple times, the first value is used" << std::endl;
-            //         break;
-            //     }
-            //     mSet++;
-            //     if(0 == strcmp("ITR", optarg)){
-            //         Config.MeasureModel=MEASURE_MODEL::INTERACTION;
-            //     // }else if(0 == strcmp("DUR", optarg)){
-            //     //     Config.MeasureModel=MEASURE_MODEL::DURATION;
-            //     //     std::cerr << "DUR 模式还没实现!" << std::endl;
-            //     //     err |= 1;
-            //     }else if(0 == strcmp("APP", optarg)){
-            //         Config.MeasureModel=MEASURE_MODEL::APPLICATION;
-            //     }else{
-            //         std::cerr << "ERROR: -m/-model value illegal: " << optarg << std::endl;
-            //         err |= 1;
-            //     }
-            //     indexArg+=2;
-            //     break;
-            // case 'd':
-            //     Config.MeasureDuration = atof(optarg);
-            //     indexArg+=2;
-            //     break;
             case 'a':
             {
                 if(aSet!=0 || lSet!=0){
@@ -566,6 +552,7 @@ int ParseOptions(int argc, char** argv){
             case 'l':
                 if(aSet!=0 || lSet!=0){
                     std::cerr << "WARNING: -a/-app/-l/-applistfile is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
                     break;
                 }
                 lSet++;
@@ -581,6 +568,7 @@ int ParseOptions(int argc, char** argv){
             case 'p':
                 if(pSet!=0){
                     std::cerr << "WARNING: -p/-postinterval is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
                     break;
                 }
                 pSet++;
@@ -590,6 +578,7 @@ int ParseOptions(int argc, char** argv){
             case 'o':
                 if(oSet!=0){
                     std::cerr << "WARNING: -o/-outfile is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
                     break;
                 }
                 oSet++;
@@ -600,15 +589,24 @@ int ParseOptions(int argc, char** argv){
             case 'i':
                 if(iSet!=0){
                     std::cerr << "WARNING: -i/-id is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
                     break;
                 }
                 iSet++;
                 Config.DeviceID = atoi(optarg);
+                PM.indexGPU = Config.DeviceID;
+
+                if(Config.DeviceID < 0){
+                    std::cerr << "ERROR: -i/-id value illegal: " << optarg << std::endl;
+                    err |= 1;
+                }
+
                 indexArg+=2;
                 break;
             case 's':
                 if(sSet!=0){
                     std::cerr << "WARNING: -s/-samplinginterval is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
                     break;
                 }
                 sSet++;
@@ -618,6 +616,7 @@ int ParseOptions(int argc, char** argv){
             case 't':
                 if(tSet!=0){
                     std::cerr << "WARNING: -t/-threshold is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
                     break;
                 }
                 tSet++;
@@ -627,6 +626,7 @@ int ParseOptions(int argc, char** argv){
             case 'e':
                 if(eSet!=0){
                     std::cerr << "WARNING: -e/-energy is set multiple times" << std::endl;
+                    indexArg++;
                     break;
                 }
                 eSet++;
@@ -636,6 +636,7 @@ int ParseOptions(int argc, char** argv){
             case 1:
                 if(memutiSet!=0){
                     std::cerr << "WARNING: -memuti is set multiple times" << std::endl;
+                    indexArg++;
                     break;
                 }
                 memutiSet++;
@@ -645,6 +646,7 @@ int ParseOptions(int argc, char** argv){
             case 2:
                 if(memclkSet!=0){
                     std::cerr << "WARNING: -memclk is set multiple times" << std::endl;
+                    indexArg++;
                     break;
                 }
                 memclkSet++;
@@ -654,6 +656,7 @@ int ParseOptions(int argc, char** argv){
             case 3:
                 if(gpuutiSet!=0){
                     std::cerr << "WARNING: -gpuuti is set multiple times" << std::endl;
+                    indexArg++;
                     break;
                 }
                 gpuutiSet++;
@@ -663,11 +666,44 @@ int ParseOptions(int argc, char** argv){
             case 4:
                 if(smclkSet!=0){
                     std::cerr << "WARNING: -smclk is set multiple times" << std::endl;
+                    indexArg++;
                     break;
                 }
                 smclkSet++;
                 Config.isMeasureSMClk = true;
                 indexArg++;
+                break;
+
+            case 0:
+                if(tuneSet!=0){
+                    std::cerr << "WARNING: -tune is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
+                    break;
+                }
+                tuneSet++;
+                if(strcmp("DVFS", optarg)==0){
+                    PM.TuneType = 0;
+                }else if(strcmp("POWER", optarg)==0){
+                    PM.TuneType = 1;
+                }else{
+                    std::cerr << "Power Manager ERROR: Invalid tuning technology type (-tune " << optarg << ")." << std::endl;
+                    err |= 1;
+                }
+                indexArg+=2;
+                break;
+            case 5:
+                if(tuneargSet!=0){
+                    std::cerr << "WARNING: -tunearg is set multiple times, the first value is used" << std::endl;
+                    indexArg+=2;
+                    break;
+                }
+                tuneargSet++;
+                PM.TuneArg = atoi(optarg);
+                if(PM.TuneArg < 0){
+                    std::cerr << "ERROR: -tunearg value illegal: " << optarg << std::endl;
+                    err |= 1;
+                }
+                indexArg+=2;
                 break;
             
             //表示选项不支持
@@ -680,6 +716,8 @@ int ParseOptions(int argc, char** argv){
                 break;
         }  
     }
+
+    err |= PM.initArg();
 
     return err;
 }
