@@ -343,10 +343,10 @@ public:
         }
         if(Config.isMeasureGPUUtil==true){
             avgGPUUtil = sumGPUUtil / TotalDuration;
-            std::cout << "minGPUUtil: " << minGPUUtil << " %; avgGPUUtil: " << avgGPUUtil << " %; maxGPUUtil: " << maxGPUUtil << "%" << std::endl;
+            std::cout << "minGPUUtil: " << minGPUUtil << " %; avgGPUUtil: " << avgGPUUtil << " %; maxGPUUtil: " << maxGPUUtil << " %" << std::endl;
             
             if(Config.isGenOutFile==true && isOpen==true){
-                outStream << "minGPUUtil: " << minGPUUtil << " %; avgGPUUtil: " << avgGPUUtil << " %; maxGPUUtil: " << maxGPUUtil << "%" << std::endl;
+                outStream << "minGPUUtil: " << minGPUUtil << " %; avgGPUUtil: " << avgGPUUtil << " %; maxGPUUtil: " << maxGPUUtil << " %" << std::endl;
             }
         }
         if(Config.isMeasureSMClk==true){
