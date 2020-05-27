@@ -19,7 +19,18 @@ const struct GPU_CLK K40mClk[5] = {{3004, 875}, {3004, 810}, {3004, 745}, {3004,
 // 最大功率 W
 const int K40mMaxPower = 235;
 
+int POWER_MANAGER::initArg(int inIndexGPU, int inTuneType, int inTuneArg){
+    indexGPU = inIndexGPU;
+    TuneType = inTuneType;
+    TuneArg = inTuneArg;
+    initArg();
+
+    return 0;
+}
+
 int POWER_MANAGER::initArg(){
+
+    isNVMLInit = false;
 
     if(TuneType < 0){
         std::cout << "Power Manager: Use default power strategy" << std::endl;
@@ -31,7 +42,6 @@ int POWER_MANAGER::initArg(){
         std::cout << "Power Manager ERROR: Failed to get device handle (NVML ERROR INFO: " << nvmlErrorString(nvmlResult) << ")." << std::endl;
         exit(-1);
     }
-    isNVMLInit = true;
 
     nvmlResult = nvmlDeviceGetHandleByIndex(indexGPU, &device);
     if(NVML_SUCCESS != nvmlResult){
@@ -47,10 +57,6 @@ int POWER_MANAGER::initArg(){
         exit(-1);
     }
     GPUName = deviceProp.name;
-
-    const int* pGPUClkNum;
-    const int* pGPUMaxPower;
-    const struct GPU_CLK* pGPUClk;
 
     if(GPUName == K40M){
         pGPUClkNum = &K40mClkNum;
@@ -82,6 +88,8 @@ int POWER_MANAGER::initArg(){
         exit(-1);
     }
 
+    isNVMLInit = true;
+
     return 0;
 }
 
@@ -90,7 +98,6 @@ int POWER_MANAGER::initCLI(int argc, char** argv){
     init();
 
     int err = 0;
-    int TmpValue = -1;
     extern char *optarg;
     extern int optind, opterr, optopt;
     int c;
@@ -118,8 +125,8 @@ int POWER_MANAGER::initCLI(int argc, char** argv){
                 }
                 break;
             case 'p':
-                TmpValue = atoi(optarg);
-                if(TmpValue<0){
+                TuneArg = atoi(optarg);
+                if(TuneArg<0){
                     std::cout << "Power Manager ERROR: Invalid configuration parameter (-p " << optarg << ")." << std::endl;
                     err = -1;
                 }
@@ -139,7 +146,46 @@ int POWER_MANAGER::initCLI(int argc, char** argv){
     return 0;
 }
 
+int POWER_MANAGER::Set(int inTuneArg){
+
+    if(isNVMLInit == false){
+        std::cout << "Power Manager ERROR: NVML has not been initialized" << std::endl;
+        exit(-1);
+    }
+
+    TuneArg = inTuneArg;
+
+    if(TuneType == 0){
+        if(0<=TuneArg && TuneArg<*pGPUClkNum){
+            indexClockPair = TuneArg;
+            memClockMHz = pGPUClk[indexClockPair].MemClk;
+            graphicsClockMHz = pGPUClk[indexClockPair].SMClk;
+        }else{
+            std::cout << "Power Manager ERROR: Invalid F-F pair index (TuneArg = " << TuneArg << ")." << std::endl;
+            exit(-1);
+        }
+    }else if(TuneType == 1){
+        if(TuneArg<=0 || TuneArg>*pGPUMaxPower){
+            std::cout << "Power Manager ERROR: Invalid power limit (TuneArg = " << TuneArg << ")." << std::endl;
+            exit(-1);
+        }else{
+            powerLimit = TuneArg;
+        }
+    }else if(TuneType > 1){
+        std::cout << "Power Manager ERROR: Invalid tune type (TuneType = " << TuneType << ")" << std::endl;
+        exit(-1);
+    }
+
+    return 0;
+}
+
 int POWER_MANAGER::Set(){
+
+    if(isNVMLInit == false){
+        std::cout << "Power Manager ERROR: NVML has not been initialized" << std::endl;
+        exit(-1);
+    }
+
     if(TuneType==0){
         std::cout << "DVFS: memClockMHz = " << memClockMHz << " MHz, graphicsClockMHz = " << graphicsClockMHz << " MHz" << std::endl;
 
@@ -163,6 +209,12 @@ int POWER_MANAGER::Set(){
 }
 
 int POWER_MANAGER::Reset(){
+
+    if(isNVMLInit == false){
+        std::cout << "Power Manager ERROR: NVML has not been initialized" << std::endl;
+        exit(-1);
+    }
+
     if(TuneType==0){
 
         nvmlResult = nvmlDeviceResetApplicationsClocks(device);

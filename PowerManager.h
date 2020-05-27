@@ -60,6 +60,10 @@ public:
 
     bool isNVMLInit;
 
+    const int* pGPUClkNum;
+    const int* pGPUMaxPower;
+    const struct GPU_CLK* pGPUClk;
+
     int init(){
         TuneType = -1;
         indexGPU = 0;
@@ -68,10 +72,15 @@ public:
         TuneArg = -1;
         isNVMLInit = false;
 
+        pGPUClkNum = NULL;
+        pGPUMaxPower = NULL;
+        pGPUClk = NULL;
+
         return 0;
     }
 
     int initArg();
+    int initArg(int inIndexGPU, int inTuneType, int inTuneArg);
     int initCLI(int argc, char** argv);
     
     POWER_MANAGER(int argc, char** argv){
@@ -84,6 +93,7 @@ public:
     }
 
     int Set();
+    int Set(int inTuneArg);
     int Reset();
 };
 
