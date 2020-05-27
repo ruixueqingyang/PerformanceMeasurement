@@ -55,6 +55,8 @@ public:
     unsigned int powerLimit; // -p W
     nvmlReturn_t nvmlResult;
     nvmlDevice_t device;
+    unsigned int MinSMClk;
+    unsigned int MaxSMClk;
 
     int TuneArg; // 临时保存调节参数, 初始化时使用
 
@@ -95,6 +97,10 @@ public:
     int Set();
     int Set(int inTuneArg);
     int Reset();
+
+    // int SetSMClkRange(int type, unsigned int LowerBound, unsigned int UpperBound);
+    int SetSMClkRange(float LowerBound, float UpperBound);
+    int ResetSMClkRange();
 };
 
 

@@ -19,6 +19,13 @@ const struct GPU_CLK K40mClk[5] = {{3004, 875}, {3004, 810}, {3004, 745}, {3004,
 // 最大功率 W
 const int K40mMaxPower = 235;
 
+#define RTX2080TI "GeForce RTX 2080 Ti"
+const int RTX2080TiMaxPower = 280;
+const int RTX2080TiDefaultPower = 257;
+const int RTX2080TiMinSMClk = 300;
+const int RTX2080TiMaxSMClk = 1920;
+
+
 int POWER_MANAGER::initArg(int inIndexGPU, int inTuneType, int inTuneArg){
     indexGPU = inIndexGPU;
     TuneType = inTuneType;
@@ -62,31 +69,37 @@ int POWER_MANAGER::initArg(){
         pGPUClkNum = &K40mClkNum;
         pGPUMaxPower = &K40mMaxPower;
         pGPUClk = K40mClk;
+
+        if(TuneType == 0){
+            if(0<=TuneArg && TuneArg<*pGPUClkNum){
+                indexClockPair = TuneArg;
+                memClockMHz = pGPUClk[indexClockPair].MemClk;
+                graphicsClockMHz = pGPUClk[indexClockPair].SMClk;
+            }else{
+                std::cout << "Power Manager ERROR: Invalid F-F pair index (TuneArg = " << TuneArg << ")." << std::endl;
+                exit(-1);
+            }
+        }else if(TuneType == 1){
+            if(TuneArg<=0 || TuneArg>*pGPUMaxPower){
+                std::cout << "Power Manager ERROR: Invalid power limit (TuneArg = " << TuneArg << ")." << std::endl;
+                exit(-1);
+            }else{
+                powerLimit = TuneArg;
+            }
+        }else if(TuneType > 1){
+            std::cout << "Power Manager ERROR: Invalid tune type (TuneType = " << TuneType << ")" << std::endl;
+            exit(-1);
+        }
+    }else if(GPUName == RTX2080TI){
+        MinSMClk = RTX2080TiMinSMClk;
+        MaxSMClk = RTX2080TiMaxSMClk;
+        graphicsClockMHz = round((TuneArg-300)/15)*15 + 300;
     }else{
         std::cout << "Power Manager ERROR: Invalid GPU type (GPUName = " << GPUName << ")." << std::endl;
         exit(-1);
     }
 
-    if(TuneType == 0){
-        if(0<=TuneArg && TuneArg<*pGPUClkNum){
-            indexClockPair = TuneArg;
-            memClockMHz = pGPUClk[indexClockPair].MemClk;
-            graphicsClockMHz = pGPUClk[indexClockPair].SMClk;
-        }else{
-            std::cout << "Power Manager ERROR: Invalid F-F pair index (TuneArg = " << TuneArg << ")." << std::endl;
-            exit(-1);
-        }
-    }else if(TuneType == 1){
-        if(TuneArg<=0 || TuneArg>*pGPUMaxPower){
-            std::cout << "Power Manager ERROR: Invalid power limit (TuneArg = " << TuneArg << ")." << std::endl;
-            exit(-1);
-        }else{
-            powerLimit = TuneArg;
-        }
-    }else if(TuneType > 1){
-        std::cout << "Power Manager ERROR: Invalid tune type (TuneType = " << TuneType << ")" << std::endl;
-        exit(-1);
-    }
+    
 
     isNVMLInit = true;
 
@@ -155,25 +168,29 @@ int POWER_MANAGER::Set(int inTuneArg){
 
     TuneArg = inTuneArg;
 
-    if(TuneType == 0){
-        if(0<=TuneArg && TuneArg<*pGPUClkNum){
-            indexClockPair = TuneArg;
-            memClockMHz = pGPUClk[indexClockPair].MemClk;
-            graphicsClockMHz = pGPUClk[indexClockPair].SMClk;
-        }else{
-            std::cout << "Power Manager ERROR: Invalid F-F pair index (TuneArg = " << TuneArg << ")." << std::endl;
+    if(GPUName == K40M){
+        if(TuneType == 0){
+            if(0<=TuneArg && TuneArg<*pGPUClkNum){
+                indexClockPair = TuneArg;
+                memClockMHz = pGPUClk[indexClockPair].MemClk;
+                graphicsClockMHz = pGPUClk[indexClockPair].SMClk;
+            }else{
+                std::cout << "Power Manager ERROR: Invalid F-F pair index (TuneArg = " << TuneArg << ")." << std::endl;
+                exit(-1);
+            }
+        }else if(TuneType == 1){
+            if(TuneArg<=0 || TuneArg>*pGPUMaxPower){
+                std::cout << "Power Manager ERROR: Invalid power limit (TuneArg = " << TuneArg << ")." << std::endl;
+                exit(-1);
+            }else{
+                powerLimit = TuneArg;
+            }
+        }else if(TuneType > 1){
+            std::cout << "Power Manager ERROR: Invalid tune type (TuneType = " << TuneType << ")" << std::endl;
             exit(-1);
         }
-    }else if(TuneType == 1){
-        if(TuneArg<=0 || TuneArg>*pGPUMaxPower){
-            std::cout << "Power Manager ERROR: Invalid power limit (TuneArg = " << TuneArg << ")." << std::endl;
-            exit(-1);
-        }else{
-            powerLimit = TuneArg;
-        }
-    }else if(TuneType > 1){
-        std::cout << "Power Manager ERROR: Invalid tune type (TuneType = " << TuneType << ")" << std::endl;
-        exit(-1);
+    }else if(GPUName == RTX2080TI){
+        graphicsClockMHz = round((TuneArg-300)/15)*15 + 300;
     }
 
     return 0;
@@ -186,25 +203,34 @@ int POWER_MANAGER::Set(){
         exit(-1);
     }
 
-    if(TuneType==0){
-        std::cout << "DVFS: memClockMHz = " << memClockMHz << " MHz, graphicsClockMHz = " << graphicsClockMHz << " MHz" << std::endl;
+    if(GPUName == K40M){
+        if(TuneType==0){
+            std::cout << "DVFS: memClockMHz = " << memClockMHz << " MHz, graphicsClockMHz = " << graphicsClockMHz << " MHz" << std::endl;
 
-        nvmlResult = nvmlDeviceSetApplicationsClocks(device, memClockMHz, graphicsClockMHz);
+            nvmlResult = nvmlDeviceSetApplicationsClocks(device, memClockMHz, graphicsClockMHz);
 
-        if(NVML_SUCCESS != nvmlResult){
-            printf("Power Manager ERROR: Failed to DVFS (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
-            exit(-1);
+            if(NVML_SUCCESS != nvmlResult){
+                printf("Power Manager ERROR: Failed to DVFS (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+                exit(-1);
+            }
+        }else if(TuneType==1){
+            std::cout << "PowerCap: powerLimit = " << powerLimit << " W" << std::endl;
+
+            nvmlResult = nvmlDeviceSetPowerManagementLimit(device, powerLimit*1000);
+
+            if(NVML_SUCCESS != nvmlResult){
+                printf("Power Manager ERROR: Failed to set power cap (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+                exit(-1);
+            }
         }
-    }else if(TuneType==1){
-        std::cout << "PowerCap: powerLimit = " << powerLimit << " W" << std::endl;
-
-        nvmlResult = nvmlDeviceSetPowerManagementLimit(device, powerLimit*1000);
-
+    }else if(GPUName == RTX2080TI){
+        nvmlResult = nvmlDeviceSetGpuLockedClocks (device, graphicsClockMHz, graphicsClockMHz);
         if(NVML_SUCCESS != nvmlResult){
-            printf("Power Manager ERROR: Failed to set power cap (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+            printf("Power Manager ERROR: Failed to set SM clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
             exit(-1);
         }
     }
+
     return 0;
 }
 
@@ -215,31 +241,73 @@ int POWER_MANAGER::Reset(){
         exit(-1);
     }
 
-    if(TuneType==0){
+    if(GPUName == K40M){
+        if(TuneType==0){
 
-        nvmlResult = nvmlDeviceResetApplicationsClocks(device);
+            nvmlResult = nvmlDeviceResetApplicationsClocks(device);
 
+            if(NVML_SUCCESS != nvmlResult){
+                printf("Power Manager ERROR: Failed to reset DVFS (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+                exit(-1);
+            }
+        }else if(TuneType==1){
+
+            unsigned int defaultLimit;
+
+            nvmlResult = nvmlDeviceGetPowerManagementDefaultLimit(device, &defaultLimit);
+            if(NVML_SUCCESS != nvmlResult){
+                printf("Power Manager ERROR: Failed to get default power cap (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+                exit(-1);
+            }
+
+
+            nvmlResult = nvmlDeviceSetPowerManagementLimit(device, defaultLimit);
+
+            if(NVML_SUCCESS != nvmlResult){
+                printf("Power Manager ERROR: Failed to reset power cap (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+                exit(-1);
+            }
+        }
+    }else if(GPUName == RTX2080TI){
+        nvmlResult = nvmlDeviceSetGpuLockedClocks (device, RTX2080TiMinSMClk, RTX2080TiMaxSMClk);
         if(NVML_SUCCESS != nvmlResult){
-            printf("Power Manager ERROR: Failed to reset DVFS (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+            printf("Power Manager ERROR: Failed to reset SM clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
             exit(-1);
         }
-    }else if(TuneType==1){
+    }
 
-        unsigned int defaultLimit;
+    return 0;
+}
 
-        nvmlResult = nvmlDeviceGetPowerManagementDefaultLimit(device, &defaultLimit);
-        if(NVML_SUCCESS != nvmlResult){
-            printf("Power Manager ERROR: Failed to get default power cap (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
-            exit(-1);
-        }
+int POWER_MANAGER::SetSMClkRange(float LowerBound, float UpperBound){
+    if(isNVMLInit == false){
+        std::cout << "Power Manager ERROR: NVML has not been initialized" << std::endl;
+        exit(-1);
+    }
 
+    unsigned int LowerSMClk = round((float)(MaxSMClk-MinSMClk)*LowerBound + MinSMClk);
+    unsigned int UpperSMClk = round((float)(MaxSMClk-MinSMClk)*UpperBound + MinSMClk);
 
-        nvmlResult = nvmlDeviceSetPowerManagementLimit(device, defaultLimit);
+    nvmlResult = nvmlDeviceSetGpuLockedClocks (device, LowerSMClk, UpperSMClk);
+    if(NVML_SUCCESS != nvmlResult){
+        printf("Power Manager ERROR: Failed to reset SM clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+        exit(-1);
+    }
 
-        if(NVML_SUCCESS != nvmlResult){
-            printf("Power Manager ERROR: Failed to reset power cap (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
-            exit(-1);
-        }
+    return 0;
+}
+
+int POWER_MANAGER::ResetSMClkRange(){
+
+    if(isNVMLInit == false){
+        std::cout << "Power Manager ERROR: NVML has not been initialized" << std::endl;
+        exit(-1);
+    }
+
+    nvmlResult = nvmlDeviceSetGpuLockedClocks (device, MinSMClk, MaxSMClk);
+    if(NVML_SUCCESS != nvmlResult){
+        printf("Power Manager ERROR: Failed to reset SM clock range (NVML ERROR INFO: %s)\n", nvmlErrorString(nvmlResult));
+        exit(-1);
     }
 
     return 0;
